@@ -74,8 +74,33 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        for i in range(self.num_layers):
+            W_i = 'W' + str(i+1)
+            b_i = 'b' + str(i+1)
 
+            # Output layer (without bath normalization)
+            if i == self.num_layers - 1:
+                self.params[W_i] = np.random.randn(hidden_dims[len(hidden_dims)-1],
+                    num_classes) * weight_scale
+                self.params[b_i] = np.zeros(num_classes)
+            # With batch normalization
+            else:
+                # First hidden layer
+                if i == 0:
+                    # N(mu, std^2) > std * np.random.randn + mu
+                    self.params[W_i] = np.random.randn(input_dim, hidden_dims[0]) * weight_scale
+                    self.params[b_i] = np.zeros(hidden_dims[0])
+                # Intermediate hidden layer
+                else:
+                    self.params[W_i] = np.random.randn(hidden_dims[i-1], hidden_dims[i]) * weight_scale
+                    self.params[b_i] = np.zeros(hidden_dims[i])
+
+                # Batch or layer normalization layer
+                if self.normalization in ['batchnorm', 'layernorm']:
+                    self.params['gamma'+str(i+1)] = np.ones(hidden_dims[i])
+                    self.params['beta'+str(i+1)] = np.zeros(hidden_dims[i])
+
+        
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -148,7 +173,49 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        caches = {}
+
+        # Don't include the last layer (no relu, no batch normalization, just affine)
+        for i in range(self.num_layers-1):
+            W_i = 'W' + str(i+1)
+            b_i = 'b' + str(i+1)
+
+            # First hidden layer
+            if i == 0:
+                # `out` denotes the output from last layer
+                out = X
+
+            # With batch normalization
+            if self.normalization == 'batchnorm':
+                # affine -> batch norm -> relu
+                fc_out, fc_cache = affine_forward(out, self.params[W_i], self.params[b_i])
+                bn_out, bn_cache = batchnorm_forward(fc_out, self.params['gamma'+str(i+1)],
+                    self.params['beta'+str(i+1)], self.bn_params[i])
+                out, relu_cache = relu_forward(bn_out)
+                caches[i+1] = (fc_cache, bn_cache, relu_cache)
+
+            # With layer normalization
+            elif self.normalization == 'layernorm':
+                # affine -> layer norm -> relu
+                fc_out, fc_cache = affine_forward(out, self.params[W_i], self.params[b_i])
+                ln_out, ln_cache = layernorm_forward(fc_out, self.params['gamma'+str(i+1)],
+                    self.params['beta'+str(i+1)], self.ln_params[i])
+                out, relu_cache = relu_forward(ln_out)
+                caches[i+1] = (fc_cache, ln_cache, relu_cache)
+
+            # Without batch normalization and layer normalization
+            else:
+                out, caches[i+1] = affine_relu_forward(out, self.params[W_i],
+                    self.params[b_i])
+
+            # Dropout layer after relu layer
+            if self.use_dropout:
+                out, caches['dropout'+str(i+1)] = dropout_forward(out, self.dropout_param)
+
+        # The last layer
+        scores, caches[self.num_layers] = affine_forward(out,
+            self.params['W'+str(self.num_layers)],
+            self.params['b'+str(self.num_layers)])
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -175,7 +242,41 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        loss, dscores = softmax_loss(scores, y) # scores = softmax(input X) , Loss에 대한 X의 gradient 
+        for i in range(self.num_layers, 0, -1):
+            # Loss with regularization
+            loss += 0.5 * self.reg * np.sum(np.square(self.params['W'+str(i)]))
+
+            # Last hidden layer (no batch normalization, no relu, no dropout)
+            if i == self.num_layers:
+                # `dout` denotes gradient of output of the last layer
+                dout, grads['W'+str(i)], grads['b'+str(i)] = affine_backward(dscores,
+                    caches[i])
+            else:
+                # Dropout backward except the last layer (before relu backward)
+                if self.use_dropout:
+                    dout = dropout_backward(dout, caches['dropout'+str(i)])
+
+                if self.normalization == 'batchnorm':
+                    # drelu -> dbatchnorm -> daffine
+                    fc_cache, bn_cache, relu_cache = caches[i]
+                    dbn_out = relu_backward(dout, relu_cache)
+                    dfc_out, grads['gamma'+str(i)], grads['beta'+str(i)] = batchnorm_backward(dbn_out, bn_cache)
+                    dout, grads['W'+str(i)], grads['b'+str(i)] = affine_backward(dfc_out, fc_cache)
+                
+                elif self.normalization == 'layernorm':
+                    # drelu -> dlayernorm -> daffine
+                    fc_cache, ln_cache, relu_cache = caches[i]
+                    dln_out = relu_backward(dout, relu_cache)
+                    dfc_out, grads['gamma'+str(i)], grads['beta'+str(i)] = layernorm_backward(dln_out, ln_cache)
+                    dout, grads['W'+str(i)], grads['b'+str(i)] = affine_backward(dfc_out, fc_cache)
+
+                else:
+                    dout, grads['W'+str(i)], grads['b'+str(i)] = affine_relu_backward(
+                        dout, caches[i])
+            
+            # Regularization term
+            grads['W'+str(i)] += self.reg * self.params['W'+str(i)]
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
