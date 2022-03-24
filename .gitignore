@@ -4,7 +4,8 @@
 
 # etc datasets
 KNN/assignment1/cs231n/datasets/
-
+CNNRNN/assignment3/cs231n/datasets/
+CNNRNN/assignment2/cs231n/datasets/
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
 # website: http://jupyter.org/
